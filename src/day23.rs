@@ -185,31 +185,81 @@ impl Input {
             .collect()
     }
 
+    fn intersections(&self) -> (HashMap<(usize, usize), usize>, Vec<(usize, usize)>) {
+        let mut node_ids = HashMap::new();
+        let mut node_locations = Vec::new();
+
+        // register start node
+        let n = node_ids.len();
+        node_ids.insert(self.start, n);
+        node_locations.push(self.start);
+
+        // register end node
+        let n = node_ids.len();
+        node_ids.insert(self.end, n);
+        node_locations.push(self.end);
+
+        // Scan the whole map looking for intersections
+        for (location, cell_type) in &self.map {
+            // intersections are interior locations that are not forest and have three or more neighbors that are not forest
+            if (location.0 > 0) && (location.0 < self.width-1) &&
+               (location.1 > 0) && (location.1 < self.height-1) &&
+               *cell_type != CellType::Forest {
+                let mut neighbors = 0;
+
+                for dir in all::<Direction>() {
+                    let neighbor = match dir {
+                        Direction::North => (location.0, location.1-1),
+                        Direction::South => (location.0, location.1+1),
+                        Direction::East => (location.0+1, location.1),
+                        Direction::West => (location.0-1, location.1),
+                    };
+                    if self.map[&neighbor] != CellType::Forest {
+                        neighbors += 1;
+                    }
+                }
+
+                if neighbors >= 3 {
+                    // Location <location> is an intersection
+                    let n = node_ids.len();
+                    node_ids.insert(*location, n);
+                    node_locations.push(*location);
+                }
+            }
+        }     
+
+        (node_ids, node_locations)
+    }
+
     // Take as many steps as possible with the first one in the specified direction.
-    // Stop when an intersection is reached, returning x, y, num_steps
+    // Stop when an intersection is reached, returning position (x, y), num_steps
     // Returns None if a dead end is reached.
-    fn follow(&self, start: &(usize, usize), dir: &Direction) -> Option<(usize, usize, usize)> {
+    fn follow(&self, start: &(usize, usize), dir: &Direction, intersections: &HashMap<(usize, usize), usize>) -> Option<(usize, usize, usize)> {
         if let Some(first_step) = self.one_move(start, dir) {
             let mut position = first_step;
             let mut last_dir = *dir;
             let mut steps = 1;
 
             loop {
+                // If we are now at an intersection (or start or end), terminate the search
+                if intersections.contains_key(&position) {
+                    return Some((position.0, position.1, steps));
+                }
+
                 // Get all the directions one can move from here (not backtracking)
                 let directions = self.directions_from(&position, &last_dir);
                 if directions.len() < 1 {
                     // Dead end reached.
                     return None;
                 }
-                else if directions.len() > 1 {
-                    // We reached an intersection
-                    return Some((position.0, position.1, steps));
-                }
-                else {
+                else if directions.len() == 1 {
                     // Exactly one direction we can go, follow it
                     last_dir = directions[0];
                     position = self.one_move(&position, &last_dir).unwrap();
                     steps += 1;
+                }
+                else {
+                    panic!("Multiple ways to go from a non-intersection!");
                 }
             }
         }
@@ -275,58 +325,33 @@ struct Graph {
     start: usize,                       // index in nodes of start node
     end: usize,                         // index in nodes of end node
     nodes: Vec<(usize, usize)>,         // identified nodes by (x, y) coord
-    paths: Vec<(usize, usize, usize)>,  // paths (from-node, to-node, steps)
+    arcs: Vec<(usize, usize, usize)>,   // paths (from-node, to-node, steps)
 }
 
 impl Graph {
     pub fn from_input(input: &Input) -> Graph {
-        // TODO-DW : Fix problem where converging nodes aren't recognized.
-        // TODO-DW : Fix problem where end node isn't recognized.
-
         // create empty nodes and paths 
-        let mut node_ids: HashMap<(usize, usize), usize> = HashMap::new();  // (x, y) -> node id
-        let mut node_locations: Vec<(usize, usize)> = Vec::new();           // node id -> (x, y)
-        let mut paths = Vec::new();
+        // let mut node_ids: HashMap<(usize, usize), usize> = HashMap::new();  // (x, y) -> node id
+        // let mut node_locations: Vec<(usize, usize)> = Vec::new();           // node id -> (x, y)
+        let mut arcs = Vec::new();
 
-        // register start node
-        let n = node_ids.len();
-        node_ids.insert(input.start, n);
-        node_locations.push(input.start);
+        let (node_ids, node_locations) = input.intersections();
 
-        // register end node
-        let n = node_ids.len();
-        node_ids.insert(input.end, n);
-        node_locations.push(input.end);
-
-        // nodes to explore from
-        let mut to_explore = vec![0];
-
-        while let Some(explore_node) = to_explore.pop() {
+        // Explore from each intersection and record which other intersections are reached
+        // and what distance away they are.
+        for explore_node in 0..node_locations.len() {
             let from_coord = node_locations[explore_node];
 
             // Try to step in each of the four cardinal directions, then continue
-            // on until we reach the start node, end node or a node with a branch.
+            // on until we reach the start node, end node or an intersection.
             for dir in all::<Direction>() {
                 println!("Following {dir:?} from {}:({}, {})", explore_node, from_coord.0, from_coord.1);
-                if let Some((x, y, dist)) = input.follow(&from_coord, &dir) {
-                    // If we ended somewhere new, register a new node and push it to to_explore list
-                    let node_id = if !node_ids.contains_key(&(x, y)) {
-                        // Found a new node to explore
-                        let node_id = node_ids.len();
-                        node_ids.insert((x, y), n);
-                        node_locations.push((x, y));                        
-                        to_explore.push(node_id);
-
-                        println!("  Got to new node: {}:({}, {})", node_id, x, y);
-                        node_id
-                    }
-                    else {
-                        println!("  Got to existing node: {}:({}, {})", node_ids[&(x, y)], x, y);
-                        node_ids[&(x, y)]
-                    };
+                if let Some((x, y, dist)) = input.follow(&from_coord, &dir, &node_ids) {                  
 
                     // Record the path we just took from explore_node to node_id in dist steps
-                    paths.push((explore_node, node_id, dist));
+                    let node_id = node_ids[&(x, y)];
+                    arcs.push((explore_node, node_id, dist));
+                    println!("  Reached intersection at {node_id}: ({x}, {y})");
                 }
                 else {
                     println!("  Got nowhere")
@@ -334,7 +359,60 @@ impl Graph {
             }
         }
 
-        Graph { start: 0, end: 1, nodes: node_locations, paths }
+        Graph { start: 0, end: 1, nodes: node_locations, arcs }
+    }
+
+    fn longest_to(&self, node_id: usize, tail: &Vec<usize>, cache: &mut HashMap<(usize, Vec<usize>), usize>) -> usize {
+        if node_id == self.start {
+            // It takes zero steps to get to the start
+            return 0
+        }
+
+        let mut local_tail = tail.clone();
+
+        // Check the cache
+        if cache.contains_key(&(node_id, local_tail.clone())) {
+            return cache[&(node_id, local_tail)]
+        }
+      
+        // Iterate over all the ways to get to node_id from nodes not in tail
+        let origins: Vec<&(usize, usize, usize)> = self.arcs.iter()
+            .filter(|arc| {
+                // arcs ending at node_id
+                (arc.1 == node_id) && !tail.contains(&arc.0)
+            }).collect();
+
+        // recursively evaluate longest path via each origin.
+        let (longest, via) = origins.iter()
+            .map(|arc| {
+                // let mut new_tail = tail.clone();
+                local_tail.push(arc.1);
+                let longest = self.longest_to(arc.0, &local_tail, cache) + arc.2;
+                local_tail.pop();
+
+                // evaluate to (longest, from)
+                (longest, arc.0)
+            })
+            .fold((0, 0), |a, b| {
+                if a.0 < b.0 {
+                    b
+                }
+                else {
+                    a
+                }
+            });
+
+        // Cache the new result
+        // local_tail.push(via);
+        cache.insert((node_id, local_tail), longest);
+        
+        longest
+    }
+
+    fn longest(&self) -> usize {
+        let mut cache = HashMap::new();
+        let mut tail = Vec::new();
+        self.longest_to(self.end, &mut tail, &mut cache)
     }
 }
 
@@ -350,7 +428,11 @@ impl<'a> Day23<'a> {
 
 impl<'a> Day for Day23<'a> {
     fn part1(&self) -> Answer {
-        Answer::None
+        let input = Input::read(self._input_filename);
+        let graph = Graph::from_input(&input);
+        let longest = graph.longest();
+
+        Answer::Numeric(longest)
     }
 
     fn part2(&self) -> Answer {
@@ -360,7 +442,8 @@ impl<'a> Day for Day23<'a> {
 
 #[cfg(test)]
 mod test {
-    use crate::day23::{Input, Direction, Graph};
+    use crate::day23::{Day23, Input, Direction, Graph};
+    use crate::day::{Day, Answer};
 
     #[test]
     fn test_input() {
@@ -374,10 +457,29 @@ mod test {
     }
 
     #[test]
-    fn test_follow() {
+    fn test_intersections() {
         let input = Input::read("examples/day23_example1.txt");
 
-        assert_eq!(input.follow(&input.start, &Direction::South), Some((3, 5, 15)));
+        let (node_ids, node_positions) = input.intersections();
+        assert_eq!(node_ids.len(), 9);
+        assert_eq!(node_positions.len(), 9);
+
+        for n in 0..node_positions.len() {
+            let position = node_positions[n];
+            assert_eq!(node_ids[&position], n);
+        }
+        for position in node_ids.keys() {
+            let node_id = node_ids[position];
+            assert_eq!(node_positions[node_id], *position);
+        }
+    }
+
+    #[test]
+    fn test_follow() {
+        let input = Input::read("examples/day23_example1.txt");
+        let (node_ids, _node_positions) = input.intersections();
+
+        assert_eq!(input.follow(&input.start, &Direction::South, &node_ids), Some((3, 5, 15)));
     }
 
     #[test]
@@ -385,20 +487,32 @@ mod test {
         let input = Input::read("examples/day23_example1.txt");
         let graph = Graph::from_input(&input);
 
-
-        for n in 0..6 {
+        for n in 0..graph.nodes.len() {
             println!("Node {n}: ({}, {})", graph.nodes[n].0, graph.nodes[n].1);
         }
 
-        for n in 0..5 {
-            println!("Path {n}: from {} to {}, len {}", graph.paths[n].0, graph.paths[n].1, graph.paths[n].2);
+        for n in 0..graph.arcs.len() {
+            println!("Path {n}: from {} to {}, len {}", graph.arcs[n].0, graph.arcs[n].1, graph.arcs[n].2);
         }
-
 
         assert_eq!(graph.start, 0);
         assert_eq!(graph.end, 1);
         assert_eq!(graph.nodes.len(), 9);
-        assert_eq!(graph.paths.len(), 5);
+        assert_eq!(graph.arcs.len(), 12);
+    }
 
+    #[test]
+    fn test_longest() {
+        let input = Input::read("examples/day23_example1.txt");
+        let graph = Graph::from_input(&input);
+
+        assert_eq!(graph.longest(), 94);
+    }
+
+    #[test]
+    fn test_part1() {
+        let d = Day23::new("examples/day23_example1.txt");
+
+        assert_eq!(d.part1(), Answer::Numeric(94));
     }
 }
