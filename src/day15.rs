@@ -19,7 +19,7 @@ impl Instruction {
 
     fn hash_str(s: &str) -> u8 {
         s.as_bytes().iter()
-            .fold(0_u8, |a, b| (a.wrapping_add(*b).wrapping_mul(17)))
+            .fold(0_u8, |a, b| a.wrapping_add(*b).wrapping_mul(17))
     }
 
     pub fn hash(&self) -> u8 {
