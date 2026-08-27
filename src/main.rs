@@ -418,13 +418,13 @@ mod test {
     #[test]
     fn test_day23_part1() {
         let d: &dyn Day = DAYS[23];
-        assert_eq!(d.part1(), Answer::None);
+        assert_eq!(d.part1(), Answer::Numeric(2162));
     }
             
     #[test]
     fn test_day23_part2() {
         let d: &dyn Day = DAYS[23];
-        assert_eq!(d.part2(), Answer::None);
+        assert_eq!(d.part2(), Answer::Numeric(6334));  // 6469 is too high (and 133 seconds is too long.)
     }
     
     #[test]
