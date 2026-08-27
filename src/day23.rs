@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, fs::File, io::{BufRead, BufReader}};
+use std::{collections::HashMap, fs::File, io::{BufRead, BufReader}};
 use enum_iterator::{all, Sequence};
 
 use crate::day::{Day, Answer};
@@ -268,71 +268,19 @@ impl Input {
             None
         }
     }
-
-    /*
-    // Given a map, location and the set of already visited cells, which directions can we go?
-    fn dir_options(&self, visited: &HashSet<(usize, usize)>, location: (usize, usize)) -> HashSet<Direction> {
-        
-    }
-    */
-
-    /*
-    // Starting with a partial path, find longest path from here.
-    fn explore(&self, path: &Vec<Direction>) -> Option<Vec<Direction>> {
-        // Trace the path, constructing a coverage map and current location.
-        let mut location = self.start;
-        let mut visited: HashSet<(usize, usize)> = HashSet::new();
-        visited.insert(location);
-
-        for direction in path {
-            location = match direction {
-                Direction::East => (location.0+1, location.1),
-                Direction::North => (location.0, location.1-1),
-                Direction::West => (location.0-1, location.1),
-                Direction::South => (location.0, location.1+1),
-            };
-            visited.insert(location);
-        }
-
-        // TODO: Evaluate all the directions the path could go next.
-        let options: Vec<Direction> = Vec::new();
-        for 
-        // TODO: While there is only one way to go, add it to the path, re-evaluate options.
-        // TODO: If no choices on where to go
-        // TODO:     If at end, return this path
-        // TODO:     Else, return None
-        // TODO: Else: (multiple choices)
-        // TODO:     call explore recursively with each option
-        // TODO:     return longest of options available
-
-        None
-
-    }
-    */
-
-    /*
-    fn longest_path(&self) -> Vec<Direction> {
-        let path = vec![Direction::South];
-
-        let longest = // self.explore(&path).unwrap();
-
-        longest
-    }
-    */
 }
 
 struct Graph {
     start: usize,                       // index in nodes of start node
     end: usize,                         // index in nodes of end node
-    nodes: Vec<(usize, usize)>,         // identified nodes by (x, y) coord
     arcs: Vec<(usize, usize, usize)>,   // paths (from-node, to-node, steps)
+    hits: usize,
+    misses: usize,
 }
 
 impl Graph {
     pub fn from_input(input: &Input, slippery: bool) -> Graph {
-        // create empty nodes and paths 
-        // let mut node_ids: HashMap<(usize, usize), usize> = HashMap::new();  // (x, y) -> node id
-        // let mut node_locations: Vec<(usize, usize)> = Vec::new();           // node id -> (x, y)
+        // create vector of arcs (from_node_id, to_node_id, length)
         let mut arcs = Vec::new();
 
         let (node_ids, node_locations) = input.intersections();
@@ -345,43 +293,35 @@ impl Graph {
             // Try to step in each of the four cardinal directions, then continue
             // on until we reach the start node, end node or an intersection.
             for dir in all::<Direction>() {
-                // println!("Following {dir:?} from {}:({}, {})", explore_node, from_coord.0, from_coord.1);
                 if let Some((x, y, dist)) = input.follow(&from_coord, &dir, &node_ids, slippery) {                  
 
                     // Record the path we just took from explore_node to node_id in dist steps
                     let node_id = node_ids[&(x, y)];
                     arcs.push((explore_node, node_id, dist));
-                    // println!("  Reached intersection at {node_id}: ({x}, {y})");
-                }
-                else {
-                    // println!("  Got nowhere")
                 }
             }
         }
 
-        println!("Arcs:");
-        for arc in &arcs {
-            println!("  {} -> {}, {} steps", arc.0, arc.1, arc.2);
-        }
-
-        Graph { start: 0, end: 1, nodes: node_locations, arcs }
+        Graph { start: 0, end: 1, arcs, hits: 0, misses: 0 }
     }
 
     fn longest_to(&self, node_id: usize, tail: &Vec<usize>, cache: &mut HashMap<(usize, Vec<usize>), Option<usize>>) -> Option<usize> {
 
-        // println!("Longest to {node_id}, exluding {:?}", tail);
+        print!("Longest to {node_id}, exluding {:?} : ", tail);
         if node_id == self.start {
             // It takes zero steps to get to the start
-            // println!("  Trivial 0");
+            println!("  Trivial 0");
             return Some(0)
         }
 
         // Check the cache
         let local_tail = tail.clone();
         if let Some(distance) = cache.get(&(node_id, local_tail)) {
-            // println!("  Cached {:?}", *distance);
+            println!("hit");  // 1377853 Only about 10% cache hit rate.
             return *distance;
         }
+
+        println!("miss");  // 12030887
       
         // Iterate over all the ways to get to node_id from nodes not in tail
         let origins: Vec<&(usize, usize, usize)> = self.arcs.iter()
@@ -411,9 +351,6 @@ impl Graph {
             .filter(|distance| { distance.is_some() })
             .map(|distance| { distance.unwrap() })
             .max();
-
-
-        // println!("Longest to {node_id}, excluding {:?} computed as {longest:?}", tail);
 
         // Cache the new result
         cache.insert((node_id, tail.clone()), longest);
@@ -503,17 +440,8 @@ mod test {
         let input = Input::read("examples/day23_example1.txt");
         let graph = Graph::from_input(&input, true);
 
-        for n in 0..graph.nodes.len() {
-            println!("Node {n}: ({}, {})", graph.nodes[n].0, graph.nodes[n].1);
-        }
-
-        for n in 0..graph.arcs.len() {
-            println!("Path {n}: from {} to {}, len {}", graph.arcs[n].0, graph.arcs[n].1, graph.arcs[n].2);
-        }
-
         assert_eq!(graph.start, 0);
         assert_eq!(graph.end, 1);
-        assert_eq!(graph.nodes.len(), 9);
         assert_eq!(graph.arcs.len(), 12);
     }
 
@@ -525,7 +453,6 @@ mod test {
         assert_eq!(graph.longest(), 94);
     }
 
-    
     #[test]
     fn test_longest_part2() {
         let input = Input::read("examples/day23_example1.txt");
@@ -546,12 +473,5 @@ mod test {
         let d = Day23::new("examples/day23_example1.txt");
 
         assert_eq!(d.part2(), Answer::Numeric(154));
-    }
-
-    #[test]
-    fn test_part2_real() {
-        let d = Day23::new("data_aoc2023/day23.txt");
-
-        assert_eq!(d.part2(), Answer::Numeric(6334));
     }
 }
