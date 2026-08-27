@@ -274,8 +274,6 @@ struct Graph {
     start: usize,                       // index in nodes of start node
     end: usize,                         // index in nodes of end node
     arcs: Vec<(usize, usize, usize)>,   // paths (from-node, to-node, steps)
-    hits: usize,
-    misses: usize,
 }
 
 impl Graph {
@@ -302,26 +300,15 @@ impl Graph {
             }
         }
 
-        Graph { start: 0, end: 1, arcs, hits: 0, misses: 0 }
+        Graph { start: 0, end: 1, arcs }
     }
 
-    fn longest_to(&self, node_id: usize, tail: &Vec<usize>, cache: &mut HashMap<(usize, Vec<usize>), Option<usize>>) -> Option<usize> {
+    fn longest_to(&self, node_id: usize, tail: &Vec<usize>) -> Option<usize> {
 
-        print!("Longest to {node_id}, exluding {:?} : ", tail);
         if node_id == self.start {
             // It takes zero steps to get to the start
-            println!("  Trivial 0");
             return Some(0)
         }
-
-        // Check the cache
-        let local_tail = tail.clone();
-        if let Some(distance) = cache.get(&(node_id, local_tail)) {
-            println!("hit");  // 1377853 Only about 10% cache hit rate.
-            return *distance;
-        }
-
-        println!("miss");  // 12030887
       
         // Iterate over all the ways to get to node_id from nodes not in tail
         let origins: Vec<&(usize, usize, usize)> = self.arcs.iter()
@@ -341,7 +328,7 @@ impl Graph {
                 let mut local_tail = tail.clone();
                 local_tail.push(arc.1);
                 local_tail.sort();
-                if let Some(longest) = self.longest_to(arc.0, &local_tail, cache) {
+                if let Some(longest) = self.longest_to(arc.0, &local_tail) {
                     Some(longest + arc.2)
                 }
                 else {
@@ -352,16 +339,12 @@ impl Graph {
             .map(|distance| { distance.unwrap() })
             .max();
 
-        // Cache the new result
-        cache.insert((node_id, tail.clone()), longest);
-
         longest
     }
 
     fn longest(&self) -> usize {
-        let mut cache = HashMap::new();
         let mut tail = Vec::new();
-        self.longest_to(self.end, &mut tail, &mut cache).unwrap()
+        self.longest_to(self.end, &mut tail).unwrap()
     }
 }
 
